@@ -30,10 +30,6 @@ tempdir = "0.3"
 rand_xorshift = "0.2.0"
 serde_json = "1.0.53"
 
-[build-dependencies]
-bellperson = { version = "0.14", default-features = false }
-ff = { version = "0.3.1", package = "fff" }
-
 [[bench]]
 name = "hash"
 harness = false
@@ -57,3 +53,7 @@ blst = ["bellperson/blst"]
 members = [
   "gbench",
 ]
+
+[patch.crates-io]
+bellperson = { git = "https://github.com/filecoin-project/bellperson", branch = "tmp-opencl3", default-features = false }
+rust-gpu-tools = { git = "https://github.com/filecoin-project/rust-gpu-tools", branch = "master", optional = true }
