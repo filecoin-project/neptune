@@ -2,7 +2,7 @@
 use crate::triton::cl;
 use std::{error, fmt};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg(any(feature = "gpu", feature = "opencl"))]
 pub enum ClError {
     DeviceNotFound,
@@ -11,6 +11,7 @@ pub enum ClError {
     NvidiaBusIdNotAvailable,
     AmdTopologyNotAvailable,
     PlatformNameNotAvailable,
+    InvalidDeviceUuid,
     CannotCreateContext,
     CannotCreateQueue,
     GetDeviceError,
@@ -35,6 +36,9 @@ impl fmt::Display for ClError {
             ClError::PlatformNameNotAvailable => {
                 write!(f, "Cannot extract platform name for the given platform.")
             }
+            ClError::InvalidDeviceUuid => {
+                write!(f, "Invalid device uuid format.")
+            }
             ClError::CannotCreateContext => write!(f, "Cannot create cl_context."),
             ClError::CannotCreateQueue => write!(f, "Cannot create cl_command_queue."),
             ClError::GetDeviceError => write!(f, "Cannot get Device"),
@@ -42,7 +46,7 @@ impl fmt::Display for ClError {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 /// Possible error states for the hashing.
 pub enum Error {
     /// The allowed number of leaves cannot be greater than the arity of the tree.
@@ -56,6 +60,8 @@ pub enum Error {
     #[cfg(feature = "gpu")]
     TritonError(String),
     DecodingError,
+    IncompleteTree(usize, usize),
+    StillBuildingTree,
     Other(String),
 }
 
@@ -89,6 +95,12 @@ impl fmt::Display for Error {
             #[cfg(feature = "gpu")]
             Error::TritonError(e) => write!(f, "Neptune-triton Error: {}", e),
             Error::DecodingError => write!(f, "PrimeFieldDecodingError"),
+            Error::IncompleteTree(current, total) => write!(
+                f,
+                "Missing columns/leaves current: {} - total: {}",
+                current, total
+            ),
+            Error::StillBuildingTree => write!(f, "Cannot add data while still building tree."),
             Error::Other(s) => write!(f, "{}", s),
         }
     }
