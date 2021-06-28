@@ -3,8 +3,8 @@ use crate::error::Error;
 use crate::poseidon::{Poseidon, PoseidonConstants};
 use crate::tree_builder::{TreeBuilder, TreeBuilderTrait};
 use crate::{Arity, BatchHasher};
-use bellperson::bls::{Bls12, Fr};
-use ff::Field;
+use bellperson::bls::Fr;
+use fff::Field;
 use generic_array::GenericArray;
 
 pub trait ColumnTreeBuilderTrait<ColumnArity, TreeArity>
@@ -30,7 +30,7 @@ where
     data: Vec<Fr>,
     /// Index of the first unfilled datum.
     fill_index: usize,
-    column_constants: PoseidonConstants<Bls12, ColumnArity>,
+    column_constants: PoseidonConstants<Fr, ColumnArity>,
     pub column_batcher: Option<Batcher<ColumnArity>>,
     tree_builder: TreeBuilder<TreeArity>,
 }
@@ -116,7 +116,7 @@ where
             leaf_count,
             data: vec![Fr::zero(); leaf_count],
             fill_index: 0,
-            column_constants: PoseidonConstants::<Bls12, ColumnArity>::new(),
+            column_constants: PoseidonConstants::<Fr, ColumnArity>::new(),
             column_batcher,
             tree_builder,
         };
@@ -148,7 +148,7 @@ mod tests {
     use crate::poseidon::{Arity, Poseidon};
     use crate::BatchHasher;
     use bellperson::bls::Fr;
-    use ff::Field;
+    use fff::Field;
     use generic_array::sequence::GenericSequence;
     use generic_array::typenum::{U11, U8};
 

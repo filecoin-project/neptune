@@ -1,6 +1,6 @@
-use bellperson::bls::{Bls12, Fr};
+use bellperson::bls::Fr;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use ff::PrimeField;
+use fff::PrimeField;
 use generic_array::typenum;
 use neptune::poseidon::{HashMode, PoseidonConstants};
 use neptune::*;
@@ -12,10 +12,10 @@ fn bench_hash<A>(c: &mut Criterion)
 where
     A: Arity<Fr>,
 {
-    let scalars: Vec<Scalar> = std::iter::repeat(())
+    let scalars: Vec<Fr> = std::iter::repeat(())
         .take(1000)
         .enumerate()
-        .map(|(i, _)| scalar_from_u64::<Fr>(i as u64))
+        .map(|(i, _)| Fr::from_u64(i as u64))
         .collect();
 
     let mut group = c.benchmark_group(format!("hash-{}", A::to_usize() * 32));
@@ -66,7 +66,7 @@ where
         &scalars,
         |b, s| {
             let constants = PoseidonConstants::new_with_strength(Strength::Standard);
-            let mut h = Poseidon::<Bls12, A>::new(&constants);
+            let mut h = Poseidon::<Fr, A>::new(&constants);
             b.iter(|| {
                 h.reset();
                 std::iter::repeat(())
@@ -86,7 +86,7 @@ where
         &scalars,
         |b, s| {
             let constants = PoseidonConstants::new_with_strength(Strength::Standard);
-            let mut h = Poseidon::<Bls12, A>::new(&constants);
+            let mut h = Poseidon::<Fr, A>::new(&constants);
             b.iter(|| {
                 h.reset();
                 std::iter::repeat(())
@@ -109,7 +109,7 @@ where
         &scalars,
         |b, s| {
             let constants = PoseidonConstants::new_with_strength(Strength::Strengthened);
-            let mut h = Poseidon::<Bls12, A>::new(&constants);
+            let mut h = Poseidon::<Fr, A>::new(&constants);
             b.iter(|| {
                 h.reset();
                 std::iter::repeat(())

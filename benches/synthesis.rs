@@ -4,7 +4,7 @@ use bellperson::gadgets::num::AllocatedNum;
 use bellperson::util_cs::bench_cs::BenchCS;
 use bellperson::{Circuit, ConstraintSystem, SynthesisError};
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use ff::Field;
+use fff::{Field, ScalarEngine};
 use generic_array::typenum;
 use neptune::circuit::poseidon_hash;
 use neptune::*;
@@ -23,7 +23,7 @@ impl<A: Arity<Fr>> Circuit<Bls12> for BenchCircuit<A> {
     ) -> Result<(), SynthesisError> {
         let mut rng = thread_rng();
         let arity = A::to_usize();
-        let constants = PoseidonConstants::<Bls12, A>::new();
+        let constants = PoseidonConstants::<<Bls12 as ScalarEngine>::Fr, A>::new();
 
         for _ in 0..self.n {
             let mut i = 0;

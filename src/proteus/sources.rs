@@ -1,6 +1,6 @@
 use super::gpu::DerivedConstants;
 use bellperson::bls::{Engine, Fr};
-use ff::PrimeField;
+use fff::PrimeField;
 use itertools::join;
 
 fn config() -> String {

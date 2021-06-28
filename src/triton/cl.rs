@@ -1,4 +1,5 @@
 use crate::error::{ClError, ClResult};
+use lazy_static::lazy_static;
 use log::*;
 use rust_gpu_tools::opencl::{cl_device_id, Device};
 use std::collections::HashMap;
@@ -7,6 +8,7 @@ use std::ptr;
 use std::sync::{Arc, Mutex, RwLock};
 use triton::bindings;
 use triton::FutharkContext;
+
 const MAX_LEN: usize = 128;
 
 lazy_static! {

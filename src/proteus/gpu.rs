@@ -3,8 +3,8 @@ use crate::error::{ClError, Error};
 use crate::hash_type::HashType;
 use crate::poseidon::PoseidonConstants;
 use crate::{Arity, BatchHasher, Strength, DEFAULT_STRENGTH};
-use bellperson::bls::{Bls12, Fr, FrRepr};
-use ff::{Field, PrimeField, PrimeFieldDecodingError};
+use bellperson::bls::{Fr, FrRepr};
+use fff::{Field, PrimeField, PrimeFieldDecodingError};
 use generic_array::{typenum, ArrayLength, GenericArray};
 use log::info;
 use rust_gpu_tools::opencl::{self, cl_device_id, Device};
@@ -13,7 +13,7 @@ use std::marker::PhantomData;
 use typenum::{U11, U2, U8};
 
 #[derive(Debug)]
-struct GpuConstants<A>(PoseidonConstants<Bls12, A>)
+struct GpuConstants<A>(PoseidonConstants<Fr, A>)
 where
     A: Arity<Fr>;
 
@@ -192,7 +192,7 @@ where
         strength: Strength,
         max_batch_size: usize,
     ) -> Result<Self, Error> {
-        let constants = GpuConstants(PoseidonConstants::<Bls12, A>::new_with_strength(strength));
+        let constants = GpuConstants(PoseidonConstants::<Fr, A>::new_with_strength(strength));
         let src = generate_program::<Fr>(true, constants.derived_constants());
         let program = opencl::Program::from_opencl(device.clone(), &src)
             .map_err(|e| Error::GpuError(format!("{:?}", e)))?;

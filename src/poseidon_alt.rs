@@ -1,9 +1,9 @@
 //! This module contains the 'correct' and 'dynamic' versions of Poseidon hashing.
 //! These are tested (in `poseidon::test`) to be equivalent to the 'static optimized' version
 //! used for actual hashing by the neptune library.
+use crate::field::PoseidonField;
 use crate::poseidon::{Arity, Poseidon};
 use crate::{matrix, quintic_s_box};
-use ff::{Field, ScalarEngine};
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Correct
@@ -11,10 +11,10 @@ use ff::{Field, ScalarEngine};
 /// This code path implements a naive and evidently correct poseidon hash.
 
 /// The returned element is the second poseidon element, the first is the arity tag.
-pub fn hash_correct<E, A>(p: &mut Poseidon<E, A>) -> E::Fr
+pub fn hash_correct<F, A>(p: &mut Poseidon<F, A>) -> F
 where
-    E: ScalarEngine,
-    A: Arity<E::Fr>,
+    F: PoseidonField,
+    A: Arity<F>,
 {
     // This counter is incremented when a round constants is read. Therefore, the round constants never repeat.
     // The first full round should use the initial constants.
@@ -37,10 +37,10 @@ where
     p.elements[1]
 }
 
-pub fn full_round<E, A>(p: &mut Poseidon<E, A>)
+pub fn full_round<F, A>(p: &mut Poseidon<F, A>)
 where
-    E: ScalarEngine,
-    A: Arity<E::Fr>,
+    F: PoseidonField,
+    A: Arity<F>,
 {
     // Apply the quintic S-Box to all elements, after adding the round key.
     // Round keys are added in the S-box to match circuits (where the addition is free)
@@ -57,7 +57,7 @@ where
         .iter_mut()
         .zip(pre_round_keys)
         .for_each(|(l, pre)| {
-            quintic_s_box::<E>(l, pre, None);
+            quintic_s_box(l, pre, None);
         });
 
     p.constants_offset += p.elements.len();
@@ -68,16 +68,16 @@ where
 }
 
 /// The partial round is the same as the full round, with the difference that we apply the S-Box only to the first bitflags poseidon leaf.
-pub fn partial_round<E, A>(p: &mut Poseidon<E, A>)
+pub fn partial_round<F, A>(p: &mut Poseidon<F, A>)
 where
-    E: ScalarEngine,
-    A: Arity<E::Fr>,
+    F: PoseidonField,
+    A: Arity<F>,
 {
     // Every element of the hash buffer is incremented by the round constants
     add_round_constants(p);
 
     // Apply the quintic S-Box to the first element
-    quintic_s_box::<E>(&mut p.elements[0], None, None);
+    quintic_s_box(&mut p.elements[0], None, None);
 
     // Multiply the elements by the constant MDS matrix
     p.product_mds();
@@ -91,10 +91,10 @@ where
 /// Comments reference notation also expanded in matrix.rs and help clarify the relationship between
 /// our optimizations and those described in the paper.
 
-pub fn hash_optimized_dynamic<E, A>(p: &mut Poseidon<E, A>) -> E::Fr
+pub fn hash_optimized_dynamic<F, A>(p: &mut Poseidon<F, A>) -> F
 where
-    E: ScalarEngine,
-    A: Arity<E::Fr>,
+    F: PoseidonField,
+    A: Arity<F>,
 {
     // The first full round should use the initial constants.
     full_round_dynamic(p, true, true);
@@ -116,13 +116,13 @@ where
     p.elements[1]
 }
 
-pub fn full_round_dynamic<E, A>(
-    p: &mut Poseidon<E, A>,
+pub fn full_round_dynamic<F, A>(
+    p: &mut Poseidon<F, A>,
     add_current_round_keys: bool,
     absorb_next_round_keys: bool,
 ) where
-    E: ScalarEngine,
-    A: Arity<E::Fr>,
+    F: PoseidonField,
+    A: Arity<F>,
 {
     // NOTE: decrease in performance is expected when using this pathway.
     // We seek to preserve correctness while transforming the algorithm to an eventually more performant one.
@@ -165,10 +165,10 @@ pub fn full_round_dynamic<E, A>(
         // in order to have the same effect as adding the given constants *after* the next `product_mds`.
 
         // M^-1(S)
-        let inverted_vec = matrix::apply_matrix::<E>(&p.constants.mds_matrices.m_inv, &post_vec);
+        let inverted_vec = matrix::apply_matrix(&p.constants.mds_matrices.m_inv, &post_vec);
 
         // M(M^-1(S))
-        let original = matrix::apply_matrix::<E>(&p.constants.mds_matrices.m, &inverted_vec);
+        let original = matrix::apply_matrix(&p.constants.mds_matrices.m, &inverted_vec);
 
         // S = M(M^-1(S))
         assert_eq!(&post_vec, &original, "Oh no, the inversion trick failed.");
@@ -181,14 +181,14 @@ pub fn full_round_dynamic<E, A>(
             .iter_mut()
             .zip(pre_round_keys.zip(post_round_keys))
             .for_each(|(l, (pre, post))| {
-                quintic_s_box::<E>(l, pre, Some(post));
+                quintic_s_box(l, pre, Some(post));
             });
     } else {
         p.elements
             .iter_mut()
             .zip(pre_round_keys)
             .for_each(|(l, pre)| {
-                quintic_s_box::<E>(l, pre, None);
+                quintic_s_box(l, pre, None);
             });
     }
     let mut consumed = 0;
@@ -208,13 +208,13 @@ pub fn full_round_dynamic<E, A>(
     p.product_mds();
 }
 
-pub fn partial_round_dynamic<E, A>(p: &mut Poseidon<E, A>)
+pub fn partial_round_dynamic<F, A>(p: &mut Poseidon<F, A>)
 where
-    E: ScalarEngine,
-    A: Arity<E::Fr>,
+    F: PoseidonField,
+    A: Arity<F>,
 {
     // Apply the quintic S-Box to the first element
-    quintic_s_box::<E>(&mut p.elements[0], None, None);
+    quintic_s_box(&mut p.elements[0], None, None);
 
     // Multiply the elements by the constant MDS matrix
     p.product_mds();
@@ -222,10 +222,10 @@ where
 
 /// For every leaf, add the round constants with index defined by the constants offset, and increment the
 /// offset.
-fn add_round_constants<E, A>(p: &mut Poseidon<E, A>)
+fn add_round_constants<F, A>(p: &mut Poseidon<F, A>)
 where
-    E: ScalarEngine,
-    A: Arity<E::Fr>,
+    F: PoseidonField,
+    A: Arity<F>,
 {
     for (element, round_constant) in p
         .elements

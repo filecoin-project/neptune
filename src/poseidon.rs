@@ -1,12 +1,12 @@
+use crate::field::PoseidonField;
 use crate::hash_type::HashType;
 use crate::matrix::Matrix;
 use crate::mds::{create_mds_matrices, factor_to_sparse_matrixes, MdsMatrices, SparseMatrix};
 use crate::poseidon_alt::{hash_correct, hash_optimized_dynamic};
 use crate::preprocessing::compress_round_constants;
-use crate::{matrix, quintic_s_box, BatchHasher, Strength, DEFAULT_STRENGTH};
-use crate::{round_constants, round_numbers, scalar_from_u64, Error};
-use bellperson::bls::{Bls12, Fr};
-use ff::{Field, PrimeField, ScalarEngine};
+use crate::{quintic_s_box, BatchHasher, Strength, DEFAULT_STRENGTH};
+use crate::{round_constants, round_numbers, Error};
+use bellperson::bls::Fr;
 use generic_array::{sequence::GenericSequence, typenum, ArrayLength, GenericArray};
 use std::marker::PhantomData;
 use typenum::marker_traits::Unsigned;
@@ -23,11 +23,11 @@ pub trait Arity<T>: ArrayLength<T> {
 macro_rules! impl_arity {
     ($($a:ty => $b:ty),*) => {
         $(
-            impl<Fr: PrimeField> Arity<Fr> for $a {
+            impl<F: PoseidonField> Arity<F> for $a {
                 type ConstantsSize = $b;
 
-                fn tag() -> Fr {
-                    scalar_from_u64::<Fr>((1 << <$a as Unsigned>::to_usize()) - 1)
+                fn tag() -> F {
+                    F::from_u64((1 << Self::to_usize()) - 1)
                 }
             }
         )*
@@ -35,10 +35,10 @@ macro_rules! impl_arity {
 }
 
 // Dummy implementation to allow for an "optional" argument.
-impl<Fr: PrimeField> Arity<Fr> for U0 {
+impl<F: PoseidonField> Arity<F> for U0 {
     type ConstantsSize = U0;
 
-    fn tag() -> Fr {
+    fn tag() -> F {
         unreachable!("dummy implementation for U0, should not be called")
     }
 }
@@ -83,39 +83,39 @@ impl_arity!(
 
 /// The `Poseidon` structure will accept a number of inputs equal to the arity.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Poseidon<'a, E, A = U2>
+pub struct Poseidon<'a, F, A = U2>
 where
-    E: ScalarEngine,
-    A: Arity<E::Fr>,
+    F: PoseidonField,
+    A: Arity<F>,
 {
     pub(crate) constants_offset: usize,
     pub(crate) current_round: usize, // Used in static optimization only for now.
     /// the elements to permute
-    pub elements: GenericArray<E::Fr, A::ConstantsSize>,
+    pub elements: GenericArray<F, A::ConstantsSize>,
     pos: usize,
-    pub(crate) constants: &'a PoseidonConstants<E, A>,
-    _e: PhantomData<E>,
+    pub(crate) constants: &'a PoseidonConstants<F, A>,
+    _f: PhantomData<F>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PoseidonConstants<E, A>
+pub struct PoseidonConstants<F, A>
 where
-    E: ScalarEngine,
-    A: Arity<E::Fr>,
+    F: PoseidonField,
+    A: Arity<F>,
 {
-    pub mds_matrices: MdsMatrices<E>,
-    pub round_constants: Vec<E::Fr>,
-    pub compressed_round_constants: Vec<E::Fr>,
-    pub pre_sparse_matrix: Matrix<E::Fr>,
-    pub sparse_matrixes: Vec<SparseMatrix<E>>,
+    pub mds_matrices: MdsMatrices<F>,
+    pub round_constants: Vec<F>,
+    pub compressed_round_constants: Vec<F>,
+    pub pre_sparse_matrix: Matrix<F>,
+    pub sparse_matrixes: Vec<SparseMatrix<F>>,
     pub strength: Strength,
     /// The domain tag is the first element of a Poseidon permutation.
     /// This extra element is necessary for 128-bit security.
-    pub domain_tag: E::Fr,
+    pub domain_tag: F,
     pub full_rounds: usize,
     pub half_full_rounds: usize,
     pub partial_rounds: usize,
-    pub hash_type: HashType<E::Fr, A>,
+    pub hash_type: HashType<F, A>,
     _a: PhantomData<A>,
 }
 
@@ -134,10 +134,10 @@ use HashMode::{Correct, OptimizedDynamic, OptimizedStatic};
 
 pub const DEFAULT_HASH_MODE: HashMode = OptimizedStatic;
 
-impl<'a, E, A> PoseidonConstants<E, A>
+impl<'a, F, A> PoseidonConstants<F, A>
 where
-    E: ScalarEngine,
-    A: Arity<E::Fr>,
+    F: PoseidonField,
+    A: Arity<F>,
 {
     pub fn new() -> Self {
         Self::new_with_strength(DEFAULT_STRENGTH)
@@ -173,17 +173,17 @@ where
         Self::new_with_strength_and_type(strength, HashType::MerkleTree)
     }
 
-    pub fn new_with_strength_and_type(strength: Strength, hash_type: HashType<E::Fr, A>) -> Self {
+    pub fn new_with_strength_and_type(strength: Strength, hash_type: HashType<F, A>) -> Self {
         assert!(hash_type.is_supported());
         let arity = A::to_usize();
         let width = arity + 1;
 
-        let mds_matrices = create_mds_matrices::<E>(width);
+        let mds_matrices = create_mds_matrices(width);
 
         let (full_rounds, partial_rounds) = round_numbers(arity, &strength);
         let half_full_rounds = full_rounds / 2;
-        let round_constants = round_constants::<E>(arity, &strength);
-        let compressed_round_constants = compress_round_constants::<E>(
+        let round_constants = round_constants(arity, &strength);
+        let compressed_round_constants = compress_round_constants(
             width,
             full_rounds,
             partial_rounds,
@@ -193,7 +193,7 @@ where
         );
 
         let (pre_sparse_matrix, sparse_matrixes) =
-            factor_to_sparse_matrixes::<E>(mds_matrices.m.clone(), partial_rounds);
+            factor_to_sparse_matrixes(mds_matrices.m.clone(), partial_rounds);
 
         // Ensure we have enough constants for the sbox rounds
         assert!(
@@ -235,27 +235,27 @@ where
     }
 }
 
-impl<E, A> Default for PoseidonConstants<E, A>
+impl<F, A> Default for PoseidonConstants<F, A>
 where
-    E: ScalarEngine,
-    A: Arity<E::Fr>,
+    F: PoseidonField,
+    A: Arity<F>,
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a, E, A> Poseidon<'a, E, A>
+impl<'a, F, A> Poseidon<'a, F, A>
 where
-    E: ScalarEngine,
-    A: Arity<E::Fr>,
+    F: PoseidonField,
+    A: Arity<F>,
 {
-    pub fn new(constants: &'a PoseidonConstants<E, A>) -> Self {
+    pub fn new(constants: &'a PoseidonConstants<F, A>) -> Self {
         let elements = GenericArray::generate(|i| {
             if i == 0 {
                 constants.domain_tag
             } else {
-                E::Fr::zero()
+                F::zero()
             }
         });
         Poseidon {
@@ -264,11 +264,11 @@ where
             elements,
             pos: 1,
             constants,
-            _e: PhantomData::<E>,
+            _f: PhantomData::<F>,
         }
     }
 
-    pub fn new_with_preimage(preimage: &[E::Fr], constants: &'a PoseidonConstants<E, A>) -> Self {
+    pub fn new_with_preimage(preimage: &[F], constants: &'a PoseidonConstants<F, A>) -> Self {
         let elements = match constants.hash_type {
             HashType::ConstantLength(constant_len) => {
                 assert_eq!(constant_len, preimage.len(), "Invalid preimage size");
@@ -277,7 +277,7 @@ where
                     if i == 0 {
                         constants.domain_tag
                     } else if i > preimage.len() {
-                        E::Fr::zero()
+                        F::zero()
                     } else {
                         preimage[i - 1]
                     }
@@ -304,7 +304,7 @@ where
             elements,
             pos: width,
             constants,
-            _e: PhantomData::<E>,
+            _f: PhantomData::<F>,
         }
     }
 
@@ -313,7 +313,7 @@ where
     /// # Panics
     ///
     /// Panics if the provided slice is bigger than the arity.
-    pub fn set_preimage(&mut self, preimage: &[E::Fr]) {
+    pub fn set_preimage(&mut self, preimage: &[F]) {
         self.reset();
         self.elements[1..].copy_from_slice(&preimage);
         self.pos = self.elements.len();
@@ -325,13 +325,13 @@ where
         self.current_round = 0;
         self.elements[1..]
             .iter_mut()
-            .for_each(|l| *l = scalar_from_u64::<E::Fr>(0u64));
+            .for_each(|l| *l = F::from_u64(0u64));
         self.elements[0] = self.constants.domain_tag;
         self.pos = 1;
     }
 
     /// The returned `usize` represents the element position (within arity) for the input operation
-    pub fn input(&mut self, element: E::Fr) -> Result<usize, Error> {
+    pub fn input(&mut self, element: F) -> Result<usize, Error> {
         // Cannot input more elements than the defined arity
         if self.pos >= self.constants.width() {
             return Err(Error::FullBuffer);
@@ -344,7 +344,7 @@ where
         Ok(self.pos - 1)
     }
 
-    pub fn hash_in_mode(&mut self, mode: HashMode) -> E::Fr {
+    pub fn hash_in_mode(&mut self, mode: HashMode) -> F {
         self.apply_padding();
         match mode {
             Correct => hash_correct(self),
@@ -353,7 +353,7 @@ where
         }
     }
 
-    pub fn hash(&mut self) -> E::Fr {
+    pub fn hash(&mut self) -> F {
         self.hash_in_mode(DEFAULT_HASH_MODE)
     }
 
@@ -372,7 +372,7 @@ where
         }
     }
 
-    pub fn hash_optimized_static(&mut self) -> E::Fr {
+    pub fn hash_optimized_static(&mut self) -> F {
         // The first full round should use the initial constants.
         self.add_round_constants();
 
@@ -426,19 +426,19 @@ where
                 // Be explicit that no round key is added after last round of S-boxes.
                 let post_key = if last_round {
                     panic!(
-                        "Trying to skip last full round, but there is a key here! ({})",
+                        "Trying to skip last full round, but there is a key here! ({:?})",
                         post
                     );
                 } else {
                     Some(post)
                 };
-                quintic_s_box::<E>(l, None, post_key);
+                quintic_s_box(l, None, post_key);
             });
         // We need this because post_round_keys will have been empty, so it didn't happen in the for_each. :(
         if last_round {
             self.elements
                 .iter_mut()
-                .for_each(|l| quintic_s_box::<E>(l, None, None));
+                .for_each(|l| quintic_s_box(l, None, None));
         } else {
             self.constants_offset += self.elements.len();
         }
@@ -450,7 +450,7 @@ where
         let post_round_key = self.constants.compressed_round_constants[self.constants_offset];
 
         // Apply the quintic S-Box to the first element
-        quintic_s_box::<E>(&mut self.elements[0], None, Some(&post_round_key));
+        quintic_s_box(&mut self.elements[0], None, Some(&post_round_key));
         self.constants_offset += 1;
 
         self.round_product_mds();
@@ -502,8 +502,8 @@ where
     /// expected matrix-vector `(matrix * elements)`. This is a performance optimization which
     /// exploits the fact that our MDS matrices are symmetric by construction.
     #[allow(clippy::ptr_arg)]
-    pub(crate) fn product_mds_with_matrix(&mut self, matrix: &Matrix<E::Fr>) {
-        let mut result = GenericArray::<E::Fr, A::ConstantsSize>::generate(|_| E::Fr::zero());
+    pub(crate) fn product_mds_with_matrix(&mut self, matrix: &Matrix<F>) {
+        let mut result = GenericArray::<F, A::ConstantsSize>::generate(|_| F::zero());
 
         for (j, val) in result.iter_mut().enumerate() {
             for (i, row) in matrix.iter().enumerate() {
@@ -517,8 +517,8 @@ where
     }
 
     // Sparse matrix in this context means one of the form, M''.
-    fn product_mds_with_sparse_matrix(&mut self, sparse_matrix: &SparseMatrix<E>) {
-        let mut result = GenericArray::<E::Fr, A::ConstantsSize>::generate(|_| E::Fr::zero());
+    fn product_mds_with_sparse_matrix(&mut self, sparse_matrix: &SparseMatrix<F>) {
+        let mut result = GenericArray::<F, A::ConstantsSize>::generate(|_| F::zero());
 
         // First column is dense.
         for (i, val) in sparse_matrix.w_hat.iter().enumerate() {
@@ -550,7 +550,7 @@ pub struct SimplePoseidonBatchHasher<A>
 where
     A: Arity<Fr>,
 {
-    constants: PoseidonConstants<Bls12, A>,
+    constants: PoseidonConstants<Fr, A>,
     max_batch_size: usize,
 }
 
@@ -564,7 +564,7 @@ where
 
     pub(crate) fn new_with_strength(strength: Strength, max_batch_size: usize) -> Self {
         Self {
-            constants: PoseidonConstants::<Bls12, A>::new_with_strength(strength),
+            constants: PoseidonConstants::<Fr, A>::new_with_strength(strength),
             max_batch_size,
         }
     }
@@ -589,20 +589,20 @@ where
 mod tests {
     use super::*;
     use crate::*;
-    use bellperson::bls::{Bls12, Fr};
-    use ff::Field;
+    use bellperson::bls::Fr;
+    use fff::Field;
     use generic_array::typenum;
 
     #[test]
     fn reset() {
         let test_arity = 2;
-        let preimage = vec![Scalar::one(); test_arity];
+        let preimage = vec![<Fr as Field>::one(); test_arity];
         let constants = PoseidonConstants::new();
-        let mut h = Poseidon::<Bls12, U2>::new_with_preimage(&preimage, &constants);
+        let mut h = Poseidon::<Fr, U2>::new_with_preimage(&preimage, &constants);
         h.hash();
         h.reset();
 
-        let default = Poseidon::<Bls12, U2>::new(&constants);
+        let default = Poseidon::<Fr, U2>::new(&constants);
         assert_eq!(default.pos, h.pos);
         assert_eq!(default.elements, h.elements);
         assert_eq!(default.constants_offset, h.constants_offset);
@@ -611,28 +611,28 @@ mod tests {
     #[test]
     fn hash_det() {
         let test_arity = 2;
-        let mut preimage = vec![Scalar::zero(); test_arity];
+        let mut preimage = vec![<Fr as Field>::zero(); test_arity];
         let constants = PoseidonConstants::new();
-        preimage[0] = Scalar::one();
+        preimage[0] = <Fr as Field>::one();
 
-        let mut h = Poseidon::<Bls12, U2>::new_with_preimage(&preimage, &constants);
+        let mut h = Poseidon::<Fr, U2>::new_with_preimage(&preimage, &constants);
 
         let mut h2 = h.clone();
-        let result: <Bls12 as ScalarEngine>::Fr = h.hash();
+        let result = h.hash();
 
         assert_eq!(result, h2.hash());
     }
 
     #[test]
     fn hash_arity_3() {
-        let mut preimage: [Scalar; 3] = [Scalar::zero(); 3];
+        let mut preimage: [Fr; 3] = [<Fr as Field>::zero(); 3];
         let constants = PoseidonConstants::new();
-        preimage[0] = Scalar::one();
+        preimage[0] = <Fr as Field>::one();
 
-        let mut h = Poseidon::<Bls12, typenum::U3>::new_with_preimage(&preimage, &constants);
+        let mut h = Poseidon::<Fr, typenum::U3>::new_with_preimage(&preimage, &constants);
 
         let mut h2 = h.clone();
-        let result: <Bls12 as ScalarEngine>::Fr = h.hash();
+        let result = h.hash();
 
         assert_eq!(result, h2.hash());
     }
@@ -658,15 +658,15 @@ mod tests {
     where
         A: Arity<Fr>,
     {
-        let constants = PoseidonConstants::<Bls12, A>::new_with_strength(strength);
-        let mut p = Poseidon::<Bls12, A>::new(&constants);
-        let mut p2 = Poseidon::<Bls12, A>::new(&constants);
-        let mut p3 = Poseidon::<Bls12, A>::new(&constants);
-        let mut p4 = Poseidon::<Bls12, A>::new(&constants);
+        let constants = PoseidonConstants::<Fr, A>::new_with_strength(strength);
+        let mut p = Poseidon::<Fr, A>::new(&constants);
+        let mut p2 = Poseidon::<Fr, A>::new(&constants);
+        let mut p3 = Poseidon::<Fr, A>::new(&constants);
+        let mut p4 = Poseidon::<Fr, A>::new(&constants);
 
         let test_arity = constants.arity();
         for n in 0..test_arity {
-            let scalar = scalar_from_u64::<Fr>(n as u64);
+            let scalar = Fr::from_u64(n as u64);
             p.input(scalar).unwrap();
             p2.input(scalar).unwrap();
             p3.input(scalar).unwrap();
@@ -685,48 +685,55 @@ mod tests {
             Strength::Standard => {
                 // Currently secure round constants.
                 match test_arity {
-                    2 => scalar_from_u64s([
+                    2 => Fr::from_le_u64s([
                         0x2e203c369a02e7ff,
                         0xa6fba9339d05a69d,
                         0x739e0fd902efe161,
                         0x396508d75e76a56b,
-                    ]),
-                    4 => scalar_from_u64s([
+                    ])
+                    .unwrap(),
+                    4 => Fr::from_le_u64s([
                         0x019814ff6662075d,
                         0xfb6b4605bf1327ec,
                         0x00db3c6579229399,
                         0x58a54b10a9e5848a,
-                    ]),
-                    8 => scalar_from_u64s([
+                    ])
+                    .unwrap(),
+                    8 => Fr::from_le_u64s([
                         0x2a9934f56d38a5e6,
                         0x4b682e9d9cc4aed9,
                         0x1201004211677077,
                         0x2394611da3a5de55,
-                    ]),
-                    11 => scalar_from_u64s([
+                    ])
+                    .unwrap(),
+                    11 => Fr::from_le_u64s([
                         0xcee3bbc32b693163,
                         0x09f3dcd8ccb08fc1,
                         0x6ca537e232ebe87a,
                         0x0c0fc1b2e5227f28,
-                    ]),
-                    16 => scalar_from_u64s([
+                    ])
+                    .unwrap(),
+                    16 => Fr::from_le_u64s([
                         0x1291c74060266d37,
                         0x5b8dbc6d30680a6f,
                         0xc1c2fb5a6f871e63,
                         0x2d3ae2663381ae8a,
-                    ]),
-                    24 => scalar_from_u64s([
+                    ])
+                    .unwrap(),
+                    24 => Fr::from_le_u64s([
                         0xd7ef3569f585b321,
                         0xc3e779f6468815b1,
                         0x066f39bf783f3d9f,
                         0x63beb8831f11ae15,
-                    ]),
-                    36 => scalar_from_u64s([
+                    ])
+                    .unwrap(),
+                    36 => Fr::from_le_u64s([
                         0x4473606dfa4e8140,
                         0x75cd368df8a8ac3c,
                         0x540a30e03c10bbaa,
                         0x699303082a6e5d5f,
-                    ]),
+                    ])
+                    .unwrap(),
                     _ => {
                         dbg!(digest, test_arity);
                         panic!("Arity lacks test vector: {}", test_arity)
@@ -737,48 +744,55 @@ mod tests {
             // Strengthened round constants.
             {
                 match test_arity {
-                    2 => scalar_from_u64s([
+                    2 => Fr::from_le_u64s([
                         0x3abccd9afc5729b1,
                         0x31662bb49883a7dc,
                         0x2a0ae894f8500373,
                         0x5f3027eb2ef4f4b8,
-                    ]),
-                    4 => scalar_from_u64s([
+                    ])
+                    .unwrap(),
+                    4 => Fr::from_le_u64s([
                         0x3ff99d0422e647ee,
                         0xad9fc9ebbb1515e1,
                         0x8f57e5ab121004ce,
                         0x40223b87a6bd4508,
-                    ]),
-                    8 => scalar_from_u64s([
+                    ])
+                    .unwrap(),
+                    8 => Fr::from_le_u64s([
                         0xfffbca3d9ffcda00,
                         0x7e4929e97170e2ae,
                         0xfdbbbd4b1b984b9b,
                         0x1367e3ced3e2edcb,
-                    ]),
-                    11 => scalar_from_u64s([
+                    ])
+                    .unwrap(),
+                    11 => Fr::from_le_u64s([
                         0x29d77677fef45927,
                         0x39062662a7311a7a,
                         0xa8650443f7bf09c1,
                         0x7344835ba9059929,
-                    ]),
-                    16 => scalar_from_u64s([
+                    ])
+                    .unwrap(),
+                    16 => Fr::from_le_u64s([
                         0x48f16b2a7fa48951,
                         0xbf999529774a192f,
                         0x273664a5bf751815,
                         0x6f53127e18f90e54,
-                    ]),
-                    24 => scalar_from_u64s([
+                    ])
+                    .unwrap(),
+                    24 => Fr::from_le_u64s([
                         0xce136f2a6675f44b,
                         0x0bf949d57c82de03,
                         0xeab0b00318558589,
                         0x70015999f995274e,
-                    ]),
-                    36 => scalar_from_u64s([
+                    ])
+                    .unwrap(),
+                    36 => Fr::from_le_u64s([
                         0x80098c6336781a9a,
                         0x591e29eb290a5b8e,
                         0xd26ff2e8c5dd73e4,
                         0x41d1adc5ece688c0,
-                    ]),
+                    ])
+                    .unwrap(),
                     _ => {
                         dbg!(digest, test_arity);
                         panic!("Arity lacks test vector: {}", test_arity)
@@ -792,11 +806,11 @@ mod tests {
 
     #[test]
     fn hash_compare_optimized() {
-        let constants = PoseidonConstants::<Bls12, U2>::new();
-        let mut p = Poseidon::<Bls12, U2>::new(&constants);
+        let constants = PoseidonConstants::<Fr, U2>::new();
+        let mut p = Poseidon::<Fr, U2>::new(&constants);
         let test_arity = constants.arity();
         for n in 0..test_arity {
-            let scalar = scalar_from_u64::<Fr>(n as u64);
+            let scalar = Fr::from_u64(n as u64);
             p.input(scalar).unwrap();
         }
         let mut p2 = p.clone();
@@ -813,9 +827,8 @@ mod tests {
 
     #[test]
     fn default_is_standard() {
-        let default_constants = PoseidonConstants::<Bls12, U8>::new();
-        let standard_constants =
-            PoseidonConstants::<Bls12, U8>::new_with_strength(Strength::Standard);
+        let default_constants = PoseidonConstants::<Fr, U8>::new();
+        let standard_constants = PoseidonConstants::<Fr, U8>::new_with_strength(Strength::Standard);
 
         assert_eq!(
             standard_constants.partial_rounds,

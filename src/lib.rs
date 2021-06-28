@@ -1,15 +1,12 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
-#[macro_use]
-extern crate lazy_static;
 
+pub use crate::error::Error;
+pub use crate::field::PoseidonField;
 pub use crate::poseidon::{Arity, Poseidon};
 use crate::round_constants::generate_constants;
 use crate::round_numbers::calc_round_numbers;
-pub use bellperson::bls::Fr as Scalar;
-use bellperson::bls::FrRepr;
-pub use error::Error;
-use ff::{Field, PrimeField, ScalarEngine};
+pub use bellperson::bls::Fr;
 use generic_array::GenericArray;
 
 #[cfg(all(feature = "futhark", feature = "opencl"))]
@@ -22,6 +19,7 @@ mod matrix;
 mod mds;
 
 /// Poseidon hash
+mod field;
 pub mod poseidon;
 mod poseidon_alt;
 mod preprocessing;
@@ -63,16 +61,16 @@ pub(crate) const DEFAULT_STRENGTH: Strength = Strength::Standard;
 
 pub trait BatchHasher<A>
 where
-    A: Arity<Scalar>,
+    A: Arity<Fr>,
 {
     // type State;
 
-    fn hash(&mut self, preimages: &[GenericArray<Scalar, A>]) -> Result<Vec<Scalar>, Error>;
+    fn hash(&mut self, preimages: &[GenericArray<Fr, A>]) -> Result<Vec<Fr>, Error>;
 
     fn hash_into_slice(
         &mut self,
-        target_slice: &mut [Scalar],
-        preimages: &[GenericArray<Scalar, A>],
+        target_slice: &mut [Fr],
+        preimages: &[GenericArray<Fr, A>],
     ) -> Result<(), Error> {
         assert_eq!(target_slice.len(), preimages.len());
         // FIXME: Account for max batch size.
@@ -120,20 +118,10 @@ pub fn round_numbers(arity: usize, strength: &Strength) -> (usize, usize) {
     }
 }
 
-/// convert
-pub fn scalar_from_u64<Fr: PrimeField>(i: u64) -> Fr {
-    Fr::from_repr(<Fr::Repr as From<u64>>::from(i)).unwrap()
-}
-
-/// create field element from four u64
-pub fn scalar_from_u64s(parts: [u64; 4]) -> Scalar {
-    Scalar::from_repr(FrRepr(parts)).unwrap()
-}
-
 const SBOX: u8 = 1; // x^5
 const FIELD: u8 = 1; // Gf(p)
 
-fn round_constants<E: ScalarEngine>(arity: usize, strength: &Strength) -> Vec<E::Fr> {
+fn round_constants<F: PoseidonField>(arity: usize, strength: &Strength) -> Vec<F> {
     let t = arity + 1;
 
     let (full_rounds, partial_rounds) = round_numbers(arity, strength);
@@ -141,21 +129,21 @@ fn round_constants<E: ScalarEngine>(arity: usize, strength: &Strength) -> Vec<E:
     let r_f = full_rounds as u16;
     let r_p = partial_rounds as u16;
 
-    let fr_num_bits = E::Fr::NUM_BITS;
+    let fr_num_bits = F::NUM_BITS;
     let field_size = {
         assert!(fr_num_bits <= std::u16::MAX as u32);
         // It's safe to convert to u16 for compatibility with other types.
         fr_num_bits as u16
     };
 
-    generate_constants::<E>(FIELD, SBOX, field_size, t as u16, r_f, r_p)
+    generate_constants::<F>(FIELD, SBOX, field_size, t as u16, r_f, r_p)
 }
 
 /// Apply the quintic S-Box (s^5) to a given item
-pub(crate) fn quintic_s_box<E: ScalarEngine>(
-    l: &mut E::Fr,
-    pre_add: Option<&E::Fr>,
-    post_add: Option<&E::Fr>,
+pub(crate) fn quintic_s_box<F: PoseidonField>(
+    l: &mut F,
+    pre_add: Option<&F>,
+    post_add: Option<&F>,
 ) {
     if let Some(x) = pre_add {
         l.add_assign(x);

@@ -12,15 +12,18 @@ resolver = "2"
 lazy_static = "1.4.0"
 bellperson = { version = "0.14", default-features = false }
 blake2s_simd = "0.5"
-blstrs = { version = "0.3.0", optional = true }
+blstrs = "0.3.0"
 byteorder = "1"
-ff = { version = "0.3.1", package = "fff" }
+fff = "0.3.1"
 generic-array = "0.14.4"
 log = "0.4.8"
 rust-gpu-tools = { version = "0.3.0", optional = true }
 triton = { version = "2.1.0", package = "neptune-triton", default-features = false, features = ["opencl"], optional = true }
 itertools = { version = "0.8.0" }
 ff-cl-gen = "0.3.0"
+ff = "0.10.0"
+paired = "0.22.0"
+pasta_curves = "0.1.1"
 
 [dev-dependencies]
 criterion = "0.3"
@@ -29,10 +32,6 @@ sha2 = "0.9"
 tempdir = "0.3"
 rand_xorshift = "0.2.0"
 serde_json = "1.0.53"
-
-[build-dependencies]
-bellperson = { version = "0.14", default-features = false }
-ff = { version = "0.3.1", package = "fff" }
 
 [[bench]]
 name = "hash"

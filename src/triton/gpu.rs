@@ -3,9 +3,10 @@ use crate::error::Error;
 use crate::hash_type::HashType;
 use crate::poseidon::PoseidonConstants;
 use crate::{Arity, BatchHasher, Strength, DEFAULT_STRENGTH};
-use bellperson::bls::{Bls12, Fr, FrRepr};
-use ff::{PrimeField, PrimeFieldDecodingError};
+use bellperson::bls::{Fr, FrRepr};
+use fff::{PrimeField, PrimeFieldDecodingError};
 use generic_array::{typenum, ArrayLength, GenericArray};
+use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::marker::PhantomData;
@@ -193,7 +194,7 @@ where
 }
 
 #[derive(Debug)]
-struct GpuConstants<A>(PoseidonConstants<Bls12, A>)
+struct GpuConstants<A>(PoseidonConstants<Fr, A>)
 where
     A: Arity<Fr>;
 
@@ -382,7 +383,7 @@ fn as_u64s<U: ArrayLength<Fr>>(vec: &[GenericArray<Fr, U>]) -> Vec<u64> {
 }
 
 fn init_hash2(ctx: &mut FutharkContext, strength: Strength) -> Result<BatcherState, Error> {
-    let constants = GpuConstants(PoseidonConstants::<Bls12, U2>::new_with_strength(strength));
+    let constants = GpuConstants(PoseidonConstants::<Fr, U2>::new_with_strength(strength));
     match strength {
         Strength::Standard => {
             let state = ctx
@@ -412,7 +413,7 @@ fn init_hash2(ctx: &mut FutharkContext, strength: Strength) -> Result<BatcherSta
 }
 
 fn init_hash8(ctx: &mut FutharkContext, strength: Strength) -> Result<BatcherState, Error> {
-    let constants = GpuConstants(PoseidonConstants::<Bls12, U8>::new_with_strength(strength));
+    let constants = GpuConstants(PoseidonConstants::<Fr, U8>::new_with_strength(strength));
     match strength {
         Strength::Standard => {
             let state = ctx
@@ -444,7 +445,7 @@ fn init_hash8(ctx: &mut FutharkContext, strength: Strength) -> Result<BatcherSta
 }
 
 fn init_hash11(ctx: &mut FutharkContext, strength: Strength) -> Result<BatcherState, Error> {
-    let constants = GpuConstants(PoseidonConstants::<Bls12, U11>::new_with_strength(strength));
+    let constants = GpuConstants(PoseidonConstants::<Fr, U11>::new_with_strength(strength));
 
     match strength {
         Strength::Standard => {
@@ -629,7 +630,7 @@ mod tests {
     use crate::poseidon::{Poseidon, SimplePoseidonBatchHasher};
     use crate::triton::gpu::BatcherState;
     use crate::BatchHasher;
-    use ff::{Field, ScalarEngine};
+    use fff::{Field, ScalarEngine};
     use generic_array::sequence::GenericSequence;
     use rand::SeedableRng;
     use rand_xorshift::XorShiftRng;

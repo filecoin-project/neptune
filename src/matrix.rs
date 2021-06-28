@@ -1,13 +1,12 @@
 // Allow `&Matrix` in function signatures.
 #![allow(clippy::ptr_arg)]
 
-use ff::{Field, ScalarEngine};
+use crate::field::PoseidonField;
 
 /// Matrix functions here are, at least for now, quick and dirty — intended only to support precomputation of poseidon optimization.
 
 /// Matrix represented as a Vec of rows, so that m[i][j] represents the jth column of the ith row in Matrix, m.
 pub type Matrix<T> = Vec<Vec<T>>;
-pub type Scalar<E> = <E as ScalarEngine>::Fr;
 
 pub fn rows<T>(matrix: &Matrix<T>) -> usize {
     matrix.len()
@@ -31,11 +30,11 @@ fn columns<T>(matrix: &Matrix<T>) -> usize {
 
 // This wastefully discards the actual inverse, if it exists, so in general callers should
 // just call `invert` if that result will be needed.
-pub(crate) fn is_invertible<E: ScalarEngine>(matrix: &Matrix<Scalar<E>>) -> bool {
-    is_square(matrix) && invert::<E>(matrix).is_some()
+pub(crate) fn is_invertible<F: PoseidonField>(matrix: &Matrix<F>) -> bool {
+    is_square(matrix) && invert(matrix).is_some()
 }
 
-fn scalar_mul<E: ScalarEngine>(scalar: Scalar<E>, matrix: &Matrix<Scalar<E>>) -> Matrix<Scalar<E>> {
+fn scalar_mul<F: PoseidonField>(scalar: F, matrix: &Matrix<F>) -> Matrix<F> {
     matrix
         .iter()
         .map(|row| {
@@ -50,7 +49,7 @@ fn scalar_mul<E: ScalarEngine>(scalar: Scalar<E>, matrix: &Matrix<Scalar<E>>) ->
         .collect::<Vec<_>>()
 }
 
-fn scalar_vec_mul<E: ScalarEngine>(scalar: Scalar<E>, vec: &[Scalar<E>]) -> Vec<Scalar<E>> {
+fn scalar_vec_mul<F: PoseidonField>(scalar: F, vec: &[F]) -> Vec<F> {
     vec.iter()
         .map(|val| {
             let mut prod = scalar;
@@ -60,21 +59,18 @@ fn scalar_vec_mul<E: ScalarEngine>(scalar: Scalar<E>, vec: &[Scalar<E>]) -> Vec<
         .collect::<Vec<_>>()
 }
 
-pub fn mat_mul<E: ScalarEngine>(
-    a: &Matrix<Scalar<E>>,
-    b: &Matrix<Scalar<E>>,
-) -> Option<Matrix<Scalar<E>>> {
+pub fn mat_mul<F: PoseidonField>(a: &Matrix<F>, b: &Matrix<F>) -> Option<Matrix<F>> {
     if rows(a) != columns(b) {
         return None;
     };
 
-    let b_t = transpose::<E>(b);
+    let b_t = transpose(b);
 
     let res = a
         .iter()
         .map(|input_row| {
             b_t.iter()
-                .map(|transposed_column| vec_mul::<E>(&input_row, &transposed_column))
+                .map(|transposed_column| vec_mul(&input_row, &transposed_column))
                 .collect()
         })
         .collect();
@@ -82,18 +78,16 @@ pub fn mat_mul<E: ScalarEngine>(
     Some(res)
 }
 
-fn vec_mul<E: ScalarEngine>(a: &[Scalar<E>], b: &[Scalar<E>]) -> Scalar<E> {
-    a.iter()
-        .zip(b)
-        .fold(Scalar::<E>::zero(), |mut acc, (v1, v2)| {
-            let mut tmp = *v1;
-            tmp.mul_assign(&v2);
-            acc.add_assign(&tmp);
-            acc
-        })
+fn vec_mul<F: PoseidonField>(a: &[F], b: &[F]) -> F {
+    a.iter().zip(b).fold(F::zero(), |mut acc, (v1, v2)| {
+        let mut tmp = *v1;
+        tmp.mul_assign(&v2);
+        acc.add_assign(&tmp);
+        acc
+    })
 }
 
-pub fn vec_add<E: ScalarEngine>(a: &[Scalar<E>], b: &[Scalar<E>]) -> Vec<Scalar<E>> {
+pub fn vec_add<F: PoseidonField>(a: &[F], b: &[F]) -> Vec<F> {
     a.iter()
         .zip(b.iter())
         .map(|(a, b)| {
@@ -104,7 +98,7 @@ pub fn vec_add<E: ScalarEngine>(a: &[Scalar<E>], b: &[Scalar<E>]) -> Vec<Scalar<
         .collect::<Vec<_>>()
 }
 
-pub fn vec_sub<E: ScalarEngine>(a: &[Scalar<E>], b: &[Scalar<E>]) -> Vec<Scalar<E>> {
+pub fn vec_sub<F: PoseidonField>(a: &[F], b: &[F]) -> Vec<F> {
     a.iter()
         .zip(b.iter())
         .map(|(a, b)| {
@@ -116,10 +110,7 @@ pub fn vec_sub<E: ScalarEngine>(a: &[Scalar<E>], b: &[Scalar<E>]) -> Vec<Scalar<
 }
 
 /// Left-multiply a vector by a square matrix of same size: MV where V is considered a column vector.
-pub fn left_apply_matrix<E: ScalarEngine>(
-    m: &Matrix<Scalar<E>>,
-    v: &[Scalar<E>],
-) -> Vec<Scalar<E>> {
+pub fn left_apply_matrix<F: PoseidonField>(m: &Matrix<F>, v: &[F]) -> Vec<F> {
     assert!(is_square(m), "Only square matrix can be applied to vector.");
     assert_eq!(
         rows(m),
@@ -127,7 +118,7 @@ pub fn left_apply_matrix<E: ScalarEngine>(
         "Matrix can only be applied to vector of same size."
     );
 
-    let mut result: Vec<Scalar<E>> = vec![Scalar::<E>::zero(); v.len()];
+    let mut result: Vec<F> = vec![F::zero(); v.len()];
 
     for (result, row) in result.iter_mut().zip(m.iter()) {
         for (mat_val, vec_val) in row.iter().zip(v) {
@@ -140,7 +131,7 @@ pub fn left_apply_matrix<E: ScalarEngine>(
 }
 
 /// Right-multiply a vector by a square matrix  of same size: VM where V is considered a row vector.
-pub fn apply_matrix<E: ScalarEngine>(m: &Matrix<Scalar<E>>, v: &[Scalar<E>]) -> Vec<Scalar<E>> {
+pub fn apply_matrix<F: PoseidonField>(m: &Matrix<F>, v: &[F]) -> Vec<F> {
     assert!(is_square(m), "Only square matrix can be applied to vector.");
     assert_eq!(
         rows(m),
@@ -148,7 +139,7 @@ pub fn apply_matrix<E: ScalarEngine>(m: &Matrix<Scalar<E>>, v: &[Scalar<E>]) -> 
         "Matrix can only be applied to vector of same size."
     );
 
-    let mut result: Vec<Scalar<E>> = vec![Scalar::<E>::zero(); v.len()];
+    let mut result: Vec<F> = vec![F::zero(); v.len()];
     for (j, val) in result.iter_mut().enumerate() {
         for (i, row) in m.iter().enumerate() {
             let mut tmp = row[j];
@@ -161,7 +152,7 @@ pub fn apply_matrix<E: ScalarEngine>(m: &Matrix<Scalar<E>>, v: &[Scalar<E>]) -> 
 }
 
 #[allow(clippy::needless_range_loop)]
-pub fn transpose<E: ScalarEngine>(matrix: &Matrix<Scalar<E>>) -> Matrix<Scalar<E>> {
+pub fn transpose<F: PoseidonField>(matrix: &Matrix<F>) -> Matrix<F> {
     let size = rows(matrix);
     let mut new = Vec::with_capacity(size);
     for j in 0..size {
@@ -175,26 +166,26 @@ pub fn transpose<E: ScalarEngine>(matrix: &Matrix<Scalar<E>>) -> Matrix<Scalar<E
 }
 
 #[allow(clippy::needless_range_loop)]
-pub fn make_identity<E: ScalarEngine>(size: usize) -> Matrix<Scalar<E>> {
-    let mut result = vec![vec![Scalar::<E>::zero(); size]; size];
+pub fn make_identity<F: PoseidonField>(size: usize) -> Matrix<F> {
+    let mut result = vec![vec![F::zero(); size]; size];
     for i in 0..size {
-        result[i][i] = Scalar::<E>::one();
+        result[i][i] = F::one();
     }
     result
 }
 
-pub fn kronecker_delta<E: ScalarEngine>(i: usize, j: usize) -> Scalar<E> {
+pub fn kronecker_delta<F: PoseidonField>(i: usize, j: usize) -> F {
     if i == j {
-        Scalar::<E>::one()
+        F::one()
     } else {
-        Scalar::<E>::zero()
+        F::zero()
     }
 }
 
-pub fn is_identity<E: ScalarEngine>(matrix: &Matrix<Scalar<E>>) -> bool {
+pub fn is_identity<F: PoseidonField>(matrix: &Matrix<F>) -> bool {
     for i in 0..rows(matrix) {
         for j in 0..columns(matrix) {
-            if matrix[i][j] != kronecker_delta::<E>(i, j) {
+            if matrix[i][j] != kronecker_delta(i, j) {
                 return false;
             }
         }
@@ -206,7 +197,7 @@ pub fn is_square<T>(matrix: &Matrix<T>) -> bool {
     rows(matrix) == columns(matrix)
 }
 
-pub fn minor<E: ScalarEngine>(matrix: &Matrix<Scalar<E>>, i: usize, j: usize) -> Matrix<Scalar<E>> {
+pub fn minor<F: PoseidonField>(matrix: &Matrix<F>, i: usize, j: usize) -> Matrix<F> {
     assert!(is_square(matrix));
     let size = rows(matrix);
     assert!(size > 0);
@@ -231,12 +222,12 @@ pub fn minor<E: ScalarEngine>(matrix: &Matrix<Scalar<E>>, i: usize, j: usize) ->
 // Returns `None` if either:
 //   - no non-zero pivot can be found for `column`
 //   - `column` is not the first
-fn eliminate<E: ScalarEngine>(
-    matrix: &Matrix<Scalar<E>>,
+fn eliminate<F: PoseidonField>(
+    matrix: &Matrix<F>,
     column: usize,
-    shadow: &mut Matrix<Scalar<E>>,
-) -> Option<Matrix<Scalar<E>>> {
-    let zero = Scalar::<E>::zero();
+    shadow: &mut Matrix<F>,
+) -> Option<Matrix<F>> {
+    let zero = F::zero();
     let pivot_index = (0..rows(matrix))
         .find(|&i| matrix[i][column] != zero && (0..column).all(|j| matrix[i][j] == zero))?;
 
@@ -259,24 +250,24 @@ fn eliminate<E: ScalarEngine>(
             let mut factor = val;
             factor.mul_assign(&inv_pivot);
 
-            let scaled_pivot = scalar_vec_mul::<E>(factor, &pivot);
-            let eliminated = vec_sub::<E>(row, &scaled_pivot);
+            let scaled_pivot = scalar_vec_mul(factor, &pivot);
+            let eliminated = vec_sub(row, &scaled_pivot);
             result.push(eliminated);
 
             let shadow_pivot = &shadow[pivot_index];
-            let scaled_shadow_pivot = scalar_vec_mul::<E>(factor, shadow_pivot);
+            let scaled_shadow_pivot = scalar_vec_mul(factor, shadow_pivot);
             let shadow_row = &shadow[i];
-            shadow[i] = vec_sub::<E>(shadow_row, &scaled_shadow_pivot);
+            shadow[i] = vec_sub(shadow_row, &scaled_shadow_pivot);
         }
     }
     Some(result)
 }
 
 // `matrix` must be square.
-fn upper_triangular<E: ScalarEngine>(
-    matrix: &Matrix<Scalar<E>>,
-    mut shadow: &mut Matrix<Scalar<E>>,
-) -> Option<Matrix<Scalar<E>>> {
+fn upper_triangular<F: PoseidonField>(
+    matrix: &Matrix<F>,
+    mut shadow: &mut Matrix<F>,
+) -> Option<Matrix<F>> {
     assert!(is_square(matrix));
     let mut result = Vec::with_capacity(matrix.len());
     let mut shadow_result = Vec::with_capacity(matrix.len());
@@ -286,7 +277,7 @@ fn upper_triangular<E: ScalarEngine>(
     while curr.len() > 1 {
         let initial_rows = curr.len();
 
-        curr = eliminate::<E>(&curr, column, &mut shadow)?;
+        curr = eliminate(&curr, column, &mut shadow)?;
         result.push(curr[0].clone());
         shadow_result.push(shadow[0].clone());
         column += 1;
@@ -304,13 +295,13 @@ fn upper_triangular<E: ScalarEngine>(
 }
 
 // `matrix` must be upper triangular.
-fn reduce_to_identity<E: ScalarEngine>(
-    matrix: &Matrix<Scalar<E>>,
-    shadow: &mut Matrix<Scalar<E>>,
-) -> Option<Matrix<Scalar<E>>> {
+fn reduce_to_identity<F: PoseidonField>(
+    matrix: &Matrix<F>,
+    shadow: &mut Matrix<F>,
+) -> Option<Matrix<F>> {
     let size = rows(matrix);
-    let mut result: Matrix<Scalar<E>> = Vec::new();
-    let mut shadow_result: Matrix<Scalar<E>> = Vec::new();
+    let mut result: Matrix<F> = Vec::new();
+    let mut shadow_result: Matrix<F> = Vec::new();
 
     for i in 0..size {
         let idx = size - i - 1;
@@ -320,17 +311,17 @@ fn reduce_to_identity<E: ScalarEngine>(
         let val = row[idx];
         let inv = val.inverse()?; // If `val` is zero, then there is no inverse, and we cannot compute a result.
 
-        let mut normalized = scalar_vec_mul::<E>(inv, &row);
-        let mut shadow_normalized = scalar_vec_mul::<E>(inv, &shadow_row);
+        let mut normalized = scalar_vec_mul(inv, &row);
+        let mut shadow_normalized = scalar_vec_mul(inv, &shadow_row);
 
         for j in 0..i {
             let idx = size - j - 1;
             let val = normalized[idx];
-            let subtracted = scalar_vec_mul::<E>(val, &result[j]);
-            let result_subtracted = scalar_vec_mul::<E>(val, &shadow_result[j]);
+            let subtracted = scalar_vec_mul(val, &result[j]);
+            let result_subtracted = scalar_vec_mul(val, &shadow_result[j]);
 
-            normalized = vec_sub::<E>(&normalized, &subtracted);
-            shadow_normalized = vec_sub::<E>(&shadow_normalized, &result_subtracted);
+            normalized = vec_sub(&normalized, &subtracted);
+            shadow_normalized = vec_sub(&shadow_normalized, &result_subtracted);
         }
 
         result.push(normalized);
@@ -345,31 +336,30 @@ fn reduce_to_identity<E: ScalarEngine>(
 }
 
 //
-pub(crate) fn invert<E: ScalarEngine>(matrix: &Matrix<Scalar<E>>) -> Option<Matrix<Scalar<E>>> {
-    let mut shadow = make_identity::<E>(columns(matrix));
-    let ut = upper_triangular::<E>(&matrix, &mut shadow);
+pub(crate) fn invert<F: PoseidonField>(matrix: &Matrix<F>) -> Option<Matrix<F>> {
+    let mut shadow = make_identity(columns(matrix));
+    let ut = upper_triangular(&matrix, &mut shadow);
 
-    ut.and_then(|x| reduce_to_identity::<E>(&x, &mut shadow))
+    ut.and_then(|x| reduce_to_identity(&x, &mut shadow))
         .and(Some(shadow))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scalar_from_u64;
-    use bellperson::bls::{Bls12, Fr};
+    use bellperson::bls::Fr;
 
     #[test]
     fn test_minor() {
-        let one = scalar_from_u64::<Fr>(1);
-        let two = scalar_from_u64::<Fr>(2);
-        let three = scalar_from_u64::<Fr>(3);
-        let four = scalar_from_u64::<Fr>(4);
-        let five = scalar_from_u64::<Fr>(5);
-        let six = scalar_from_u64::<Fr>(6);
-        let seven = scalar_from_u64::<Fr>(7);
-        let eight = scalar_from_u64::<Fr>(8);
-        let nine = scalar_from_u64::<Fr>(9);
+        let one = Fr::from_u64(1);
+        let two = Fr::from_u64(2);
+        let three = Fr::from_u64(3);
+        let four = Fr::from_u64(4);
+        let five = Fr::from_u64(5);
+        let six = Fr::from_u64(6);
+        let seven = Fr::from_u64(7);
+        let eight = Fr::from_u64(8);
+        let nine = Fr::from_u64(9);
 
         let m = vec![
             vec![one, two, three],
@@ -389,7 +379,7 @@ mod tests {
             (2, 2, vec![vec![one, two], vec![four, five]]),
         ];
         for (i, j, expected) in &cases {
-            let result = minor::<Bls12>(&m, *i, *j);
+            let result = minor(&m, *i, *j);
 
             assert_eq!(*expected, result);
         }
@@ -397,15 +387,15 @@ mod tests {
 
     #[test]
     fn test_scalar_mul() {
-        let zero = scalar_from_u64::<Fr>(0);
-        let one = scalar_from_u64::<Fr>(1);
-        let two = scalar_from_u64::<Fr>(2);
-        let three = scalar_from_u64::<Fr>(3);
-        let four = scalar_from_u64::<Fr>(4);
-        let six = scalar_from_u64::<Fr>(6);
+        let zero = Fr::from_u64(0);
+        let one = Fr::from_u64(1);
+        let two = Fr::from_u64(2);
+        let three = Fr::from_u64(3);
+        let four = Fr::from_u64(4);
+        let six = Fr::from_u64(6);
 
         let m = vec![vec![zero, one], vec![two, three]];
-        let res = scalar_mul::<Bls12>(two, &m);
+        let res = scalar_mul(two, &m);
 
         let expected = vec![vec![zero, two], vec![four, six]];
 
@@ -414,33 +404,33 @@ mod tests {
 
     #[test]
     fn test_vec_mul() {
-        let one = scalar_from_u64::<Fr>(1);
-        let two = scalar_from_u64::<Fr>(2);
-        let three = scalar_from_u64::<Fr>(3);
-        let four = scalar_from_u64::<Fr>(4);
-        let five = scalar_from_u64::<Fr>(5);
-        let six = scalar_from_u64::<Fr>(6);
+        let one = Fr::from_u64(1);
+        let two = Fr::from_u64(2);
+        let three = Fr::from_u64(3);
+        let four = Fr::from_u64(4);
+        let five = Fr::from_u64(5);
+        let six = Fr::from_u64(6);
 
         let a = vec![one, two, three];
         let b = vec![four, five, six];
-        let res = vec_mul::<Bls12>(&a, &b);
+        let res = vec_mul(&a, &b);
 
-        let expected = scalar_from_u64::<Fr>(32);
+        let expected = Fr::from_u64(32);
 
         assert_eq!(expected, res);
     }
 
     #[test]
     fn test_transpose() {
-        let one = scalar_from_u64::<Fr>(1);
-        let two = scalar_from_u64::<Fr>(2);
-        let three = scalar_from_u64::<Fr>(3);
-        let four = scalar_from_u64::<Fr>(4);
-        let five = scalar_from_u64::<Fr>(5);
-        let six = scalar_from_u64::<Fr>(6);
-        let seven = scalar_from_u64::<Fr>(7);
-        let eight = scalar_from_u64::<Fr>(8);
-        let nine = scalar_from_u64::<Fr>(9);
+        let one = Fr::from_u64(1);
+        let two = Fr::from_u64(2);
+        let three = Fr::from_u64(3);
+        let four = Fr::from_u64(4);
+        let five = Fr::from_u64(5);
+        let six = Fr::from_u64(6);
+        let seven = Fr::from_u64(7);
+        let eight = Fr::from_u64(8);
+        let nine = Fr::from_u64(9);
 
         let m = vec![
             vec![one, two, three],
@@ -454,21 +444,21 @@ mod tests {
             vec![three, six, nine],
         ];
 
-        let res = transpose::<Bls12>(&m);
+        let res = transpose(&m);
         assert_eq!(expected, res);
     }
 
     #[test]
     fn test_inverse() {
-        let one = scalar_from_u64::<Fr>(1);
-        let two = scalar_from_u64::<Fr>(2);
-        let three = scalar_from_u64::<Fr>(3);
-        let four = scalar_from_u64::<Fr>(4);
-        let five = scalar_from_u64::<Fr>(5);
-        let six = scalar_from_u64::<Fr>(6);
-        let seven = scalar_from_u64::<Fr>(7);
-        let eight = scalar_from_u64::<Fr>(8);
-        let nine = scalar_from_u64::<Fr>(9);
+        let one = Fr::from_u64(1);
+        let two = Fr::from_u64(2);
+        let three = Fr::from_u64(3);
+        let four = Fr::from_u64(4);
+        let five = Fr::from_u64(5);
+        let six = Fr::from_u64(6);
+        let seven = Fr::from_u64(7);
+        let eight = Fr::from_u64(8);
+        let nine = Fr::from_u64(9);
 
         let m = vec![
             vec![one, two, three],
@@ -482,22 +472,22 @@ mod tests {
             vec![seven, eight, nine],
         ];
 
-        assert!(!is_invertible::<Bls12>(&m1));
-        assert!(is_invertible::<Bls12>(&m));
+        assert!(!is_invertible(&m1));
+        assert!(is_invertible(&m));
 
-        let m_inv = invert::<Bls12>(&m).unwrap();
+        let m_inv = invert(&m).unwrap();
 
-        let computed_identity = mat_mul::<Bls12>(&m, &m_inv).unwrap();
-        assert!(is_identity::<Bls12>(&computed_identity));
+        let computed_identity = mat_mul(&m, &m_inv).unwrap();
+        assert!(is_identity(&computed_identity));
 
         // S
         let some_vec = vec![six, five, four];
 
         // M^-1(S)
-        let inverse_applied = super::apply_matrix::<Bls12>(&m_inv, &some_vec);
+        let inverse_applied = super::apply_matrix(&m_inv, &some_vec);
 
         // M(M^-1(S))
-        let m_applied_after_inverse = super::apply_matrix::<Bls12>(&m, &inverse_applied);
+        let m_applied_after_inverse = super::apply_matrix(&m, &inverse_applied);
 
         // S = M(M^-1(S))
         assert_eq!(
@@ -510,11 +500,10 @@ mod tests {
         let base_vec = vec![eight, two, five];
 
         // S + M(B)
-        let add_after_apply = vec_add::<Bls12>(&some_vec, &apply_matrix::<Bls12>(&m, &base_vec));
+        let add_after_apply = vec_add(&some_vec, &apply_matrix(&m, &base_vec));
 
         // M(B + M^-1(S))
-        let apply_after_add =
-            apply_matrix::<Bls12>(&m, &vec_add::<Bls12>(&base_vec, &inverse_applied));
+        let apply_after_add = apply_matrix(&m, &vec_add(&base_vec, &inverse_applied));
 
         // S + M(B) = M(B + M^-1(S))
         assert_eq!(add_after_apply, apply_after_add, "breakin' the law");
@@ -522,15 +511,15 @@ mod tests {
 
     #[test]
     fn test_eliminate() {
-        //let one = scalar_from_u64::<Fr>(1);
-        let two = scalar_from_u64::<Fr>(2);
-        let three = scalar_from_u64::<Fr>(3);
-        let four = scalar_from_u64::<Fr>(4);
-        let five = scalar_from_u64::<Fr>(5);
-        let six = scalar_from_u64::<Fr>(6);
-        let seven = scalar_from_u64::<Fr>(7);
-        let eight = scalar_from_u64::<Fr>(8);
-        //        let nine = scalar_from_u64::<Fr>(9);
+        //let one = Fr::from_u64(1);
+        let two = Fr::from_u64(2);
+        let three = Fr::from_u64(3);
+        let four = Fr::from_u64(4);
+        let five = Fr::from_u64(5);
+        let six = Fr::from_u64(6);
+        let seven = Fr::from_u64(7);
+        let eight = Fr::from_u64(8);
+        //        let nine = Fr::from_u64(9);
 
         let m = vec![
             vec![two, three, four],
@@ -539,8 +528,8 @@ mod tests {
         ];
 
         for i in 0..rows(&m) {
-            let mut shadow = make_identity::<Bls12>(columns(&m));
-            let res = eliminate::<Bls12>(&m, i, &mut shadow);
+            let mut shadow = make_identity(columns(&m));
+            let res = eliminate(&m, i, &mut shadow);
             if i > 0 {
                 assert!(res.is_none());
                 continue;
@@ -552,22 +541,22 @@ mod tests {
                 1,
                 res.unwrap()
                     .iter()
-                    .filter(|&row| row[i] != <Bls12 as ScalarEngine>::Fr::zero())
+                    .filter(|&row| row[i] != Fr::zero())
                     .count()
             );
         }
     }
     #[test]
     fn test_upper_triangular() {
-        //        let one = scalar_from_u64::<Fr>(1);
-        let two = scalar_from_u64::<Fr>(2);
-        let three = scalar_from_u64::<Fr>(3);
-        let four = scalar_from_u64::<Fr>(4);
-        let five = scalar_from_u64::<Fr>(5);
-        let six = scalar_from_u64::<Fr>(6);
-        let seven = scalar_from_u64::<Fr>(7);
-        let eight = scalar_from_u64::<Fr>(8);
-        //        let nine = scalar_from_u64::<Fr>(9);
+        //        let one = Fr::from_u64(1);
+        let two = Fr::from_u64(2);
+        let three = Fr::from_u64(3);
+        let four = Fr::from_u64(4);
+        let five = Fr::from_u64(5);
+        let six = Fr::from_u64(6);
+        let seven = Fr::from_u64(7);
+        let eight = Fr::from_u64(8);
+        //        let nine = Fr::from_u64(9);
 
         let m = vec![
             vec![two, three, four],
@@ -575,23 +564,23 @@ mod tests {
             vec![seven, eight, eight],
         ];
 
-        let mut shadow = make_identity::<Bls12>(columns(&m));
-        let _res = upper_triangular::<Bls12>(&m, &mut shadow);
+        let mut shadow = make_identity(columns(&m));
+        let _res = upper_triangular(&m, &mut shadow);
 
         // Actually assert things.
     }
 
     #[test]
     fn test_reduce_to_identity() {
-        //        let one = scalar_from_u64::<Fr>(1);
-        let two = scalar_from_u64::<Fr>(2);
-        let three = scalar_from_u64::<Fr>(3);
-        let four = scalar_from_u64::<Fr>(4);
-        let five = scalar_from_u64::<Fr>(5);
-        let six = scalar_from_u64::<Fr>(6);
-        let seven = scalar_from_u64::<Fr>(7);
-        let eight = scalar_from_u64::<Fr>(8);
-        //        let nine = scalar_from_u64::<Fr>(9);
+        //        let one = Fr::from_u64(1);
+        let two = Fr::from_u64(2);
+        let three = Fr::from_u64(3);
+        let four = Fr::from_u64(4);
+        let five = Fr::from_u64(5);
+        let six = Fr::from_u64(6);
+        let seven = Fr::from_u64(7);
+        let eight = Fr::from_u64(8);
+        //        let nine = Fr::from_u64(9);
 
         let m = vec![
             vec![two, three, four],
@@ -599,16 +588,16 @@ mod tests {
             vec![seven, eight, eight],
         ];
 
-        let mut shadow = make_identity::<Bls12>(columns(&m));
-        let ut = upper_triangular::<Bls12>(&m, &mut shadow);
+        let mut shadow = make_identity(columns(&m));
+        let ut = upper_triangular(&m, &mut shadow);
 
         let res = ut
-            .and_then(|x| reduce_to_identity::<Bls12>(&x, &mut shadow))
+            .and_then(|x| reduce_to_identity(&x, &mut shadow))
             .unwrap();
 
-        assert!(is_identity::<Bls12>(&res));
-        let prod = mat_mul::<Bls12>(&m, &shadow).unwrap();
+        assert!(is_identity(&res));
+        let prod = mat_mul(&m, &shadow).unwrap();
 
-        assert!(is_identity::<Bls12>(&prod));
+        assert!(is_identity(&prod));
     }
 }

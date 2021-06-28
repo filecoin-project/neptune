@@ -12,7 +12,7 @@ bellperson = { version = "0.14", default-features = false }
 blake2s_simd = "0.5"
 byteorder = "1"
 env_logger = "0.7.1"
-ff = { version = "0.3.1", package = "fff" }
+fff = "0.3.1"
 generic-array = "0.14.4"
 log = "0.4.8"
 neptune = { path = "../", default-features = false }

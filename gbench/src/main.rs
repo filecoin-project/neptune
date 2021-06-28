@@ -1,5 +1,5 @@
 use bellperson::bls::Fr;
-use ff::Field;
+use fff::Field;
 use generic_array::sequence::GenericSequence;
 use generic_array::typenum::{U11, U8};
 use generic_array::GenericArray;
