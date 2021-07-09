@@ -36,9 +36,9 @@ Filecoin's Poseidon specification is published in the Filecoin specification doc
 
 ## Environment variables
 
- - `NEPTUNE_DEFAULT_GPU=<bus-id>` allows you to select the default GPU that tree-builder is going to run on given its bus-id.
+ - `NEPTUNE_DEFAULT_GPU=<unique-id>` allows you to select the default GPU that tree-builder is going to run on given its unique ID.
 
-(Bus-id is a decimal integer that can be found through `nvidia-smi`, `rocm-smi`, `lspci` and etc.)
+(The unique ID is the UUID or the hexadecimal Bus-ID that can be found through `nvidia-smi`, `rocm-smi`, `lspci` and etc.)
 
 ## Future Work
 

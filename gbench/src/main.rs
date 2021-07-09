@@ -6,7 +6,8 @@ use generic_array::GenericArray;
 use log::info;
 use neptune::column_tree_builder::{ColumnTreeBuilder, ColumnTreeBuilderTrait};
 use neptune::{batch_hasher::Batcher, BatchHasher};
-use rust_gpu_tools::opencl::Device;
+use rust_gpu_tools::opencl::{Device, UniqueId};
+use std::convert::TryFrom;
 use std::thread;
 use std::time::Instant;
 use structopt::StructOpt;
@@ -125,10 +126,11 @@ fn main() {
     let devices = gpus
         .map(|v| {
             v.split(',')
-                .map(|s| s.parse::<u32>().expect("Invalid Bus-Id number!"))
-                .map(|bus_id| {
-                    let device = Device::by_bus_id(bus_id)
-                        .unwrap_or_else(|_| panic!("No device with Bus-ID {} found!", bus_id));
+                .map(|s| UniqueId::try_from(s).expect("Invalid unique ID!"))
+                .map(|unique_id| {
+                    let device = Device::by_unique_id(unique_id).unwrap_or_else(|_| {
+                        panic!("No device with unique ID {} found!", unique_id)
+                    });
                     device
                 })
                 .collect::<Vec<_>>()

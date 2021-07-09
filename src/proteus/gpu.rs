@@ -130,20 +130,21 @@ where
             v_rest_offset: _,
         } = self.derived_constants();
 
-        let mut buffer = program
+        let buffer = program
             .create_buffer::<Fr>(constants_elements)
             .map_err(|e| Error::GpuError(format!("{:?}", e)))?;
 
         let c = &self.0;
 
-        buffer
-            .write_from(domain_tag_offset, &[c.domain_tag])
+        program
+            .write_from_buffer(&buffer, domain_tag_offset, &[c.domain_tag])
             .map_err(|e| Error::GpuError(format!("{:?}", e)))?;
-        buffer
-            .write_from(round_keys_offset, &c.compressed_round_constants)
+        program
+            .write_from_buffer(&buffer, round_keys_offset, &c.compressed_round_constants)
             .map_err(|e| Error::GpuError(format!("{:?}", e)))?;
-        buffer
-            .write_from(
+        program
+            .write_from_buffer(
+                &buffer,
                 mds_matrix_offset,
                 c.mds_matrices
                     .m
@@ -154,8 +155,9 @@ where
                     .as_slice(),
             )
             .map_err(|e| Error::GpuError(format!("{:?}", e)))?;
-        buffer
-            .write_from(
+        program
+            .write_from_buffer(
+                &buffer,
                 pre_sparse_matrix_offset,
                 c.pre_sparse_matrix
                     .iter()
@@ -170,8 +172,8 @@ where
             sm_elts.extend(sm.w_hat.iter());
             sm_elts.extend(sm.v_rest.iter());
         }
-        buffer
-            .write_from(sparse_matrixes_offset, &sm_elts)
+        program
+            .write_from_buffer(&buffer, sparse_matrixes_offset, &sm_elts)
             .map_err(|e| Error::GpuError(format!("{:?}", e)))?;
 
         Ok(buffer)
@@ -194,7 +196,7 @@ where
     ) -> Result<Self, Error> {
         let constants = GpuConstants(PoseidonConstants::<Bls12, A>::new_with_strength(strength));
         let src = generate_program::<Fr>(true, constants.derived_constants());
-        let program = opencl::Program::from_opencl(device.clone(), &src)
+        let program = opencl::Program::from_opencl(&device, &src)
             .map_err(|e| Error::GpuError(format!("{:?}", e)))?;
         let constants_buffer = constants.to_buffer(&program)?;
         Ok(Self {
@@ -228,17 +230,18 @@ where
 
         let num_hashes = preimages.len();
 
-        let kernel =
-            self.program
-                .create_kernel("hash_preimages", global_work_size, Some(local_work_size));
+        let kernel = self
+            .program
+            .create_kernel("hash_preimages", global_work_size, local_work_size)
+            .map_err(|e| Error::GpuError(format!("{:?}", e)))?;
 
-        let mut preimages_buffer = self
+        let preimages_buffer = self
             .program
             .create_buffer::<GenericArray<Fr, A>>(num_hashes)
             .map_err(|e| Error::GpuError(format!("{:?}", e)))?;
 
-        preimages_buffer
-            .write_from(0, preimages)
+        self.program
+            .write_from_buffer(&preimages_buffer, 0, preimages)
             .map_err(|e| Error::GpuError(format!("{:?}", e)))?;
         let result_buffer = self
             .program
@@ -249,13 +252,13 @@ where
             .arg(&self.constants_buffer)
             .arg(&preimages_buffer)
             .arg(&result_buffer)
-            .arg(preimages.len() as i32)
+            .arg(&(preimages.len() as i32))
             .run()
             .map_err(|e| Error::GpuError(format!("{:?}", e)))?;
 
         let mut frs = vec![<Fr as Field>::zero(); num_hashes];
-        result_buffer
-            .read_into(0, &mut frs)
+        self.program
+            .read_into_buffer(&result_buffer, 0, &mut frs)
             .map_err(|e| Error::GpuError(format!("{:?}", e)))?;
         Ok(frs.to_vec())
     }
